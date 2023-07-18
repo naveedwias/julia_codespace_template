@@ -91,3 +91,86 @@ function get_flow_data(ν)
         ), [2,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
     return u, p, f, u_t
 end
+
+function fokker_plank_linear_space_time(ϵ)    
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+    function exact!(result, x, t)
+        result[1] = x[1]*x[2]*(1.0+t);
+    end    
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)    
+    function rhs!(result, x, t)
+        u = x[1]*x[2]*(1.0+t);
+        ux = x[2]*(1.0+t);
+        uxx = 0.0*(1.0+t);
+        uy = x[2]*(1.0+t); 
+        uyy = 0.0;
+        ut = x[1]*x[2];
+        result[1] = ut - ϵ*(uxx+uyy) + x[1]*ux+x[2]*uy + 2*u;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    return β, u, ∇(u), f
+end
+
+function fokker_plank_space_example1(ϵ, p=1, α=1.0)
+    γ= DataFunction([0.0]; name = "γ")    
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+    function exact!(result, x, t)
+        result[1] = (x[1]-x[1]^2)*(x[2]-x[2]^2)*(1.0+t^α/gamma(α+1));
+    end    
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)    
+    ∇u = eval_∇(u)
+    function rhs!(result, x, t)
+        u = (x[1]-x[1]^2)*(x[2]-x[2]^2)*(1.0+t^α/gamma(α+1));
+        ux = (1-2*x[1])*(x[2]-x[2]^2)*(1.0+t^α/gamma(α+1));
+        uxx = -2*(x[2]-x[2]^2)*(1.0+t^α/gamma(α+1));
+        uy = (x[1]-x[1]^2)*(1-2*x[2])*(1.0+t^α/gamma(α+1)); 
+        uyy = -2*(x[1]-x[1]^2)*(1.0+t^α/gamma(α+1));
+        ut = (x[1]-x[1]^2)*(x[2]-x[2]^2); # time derivative is 1
+        result[1] = ut - (uxx+uyy) + x[1]*ux+x[2]*uy + 2*u;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    return γ, β, u, ∇(u), f
+end
+
+function fokker_plank_space_notH2(ϵ, p=1, α=1.0)
+    γ= DataFunction([0.0]; name = "γ")
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+    function exact!(result, x, t)
+        exp_x = exp((x[1]-1)/ϵ );
+        exp_eps = 1.0/(1-exp(-1.0/ϵ));
+        u_0_x=x[1]-exp_eps*(exp_x-exp(-1.0/ϵ));
+        result[1] = x[2]*(1-x[2])*u_0_x* (1.0+t^α/gamma(α+1));
+    end    
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+    function rhs!(result, x, t)
+        exp_x = exp((x[1]-1)/ϵ );
+        exp_eps = 1.0/(1-exp(-1.0/ϵ));
+        u_0_x=x[1]-exp_eps*(exp_x-exp(-1.0/ϵ));
+        u = (x[2]-x[2]^2)*u_0_x*(1.0+t^α/gamma(α+1));
+        ux = x[2]*(1-x[2])*(1-(exp_x*exp_eps)/ϵ)*(1.0+t^α/gamma(α+1));        
+        uy = (u_0_x*(1-2*x[2]))*(1.0+t^α/gamma(α+1));
+        ut = (x[2]-x[2]^2)*u_0_x; # time derivative is 1
+        laplace = ϵ*(-x[2]*(1-x[2])*(exp_x*exp_eps)/(ϵ^2)-2*u_0_x)*(1.0+t^α/gamma(α+1));
+        result[1] = ut - laplace + x[1]*ux+x[2]*uy + 2*u;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    return γ, β, u, ∇(u), f
+end
