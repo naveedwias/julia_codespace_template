@@ -1,6 +1,21 @@
 using Triangulate
 using SimplexGridFactory
 
+function ConvQuad(n=10, α=1.0)
+    ω = zeros(n+1)
+    ω[1] = 1.0
+    ω[2] = -α
+    for j=3:n+1 
+        ω[j] = (j-2-α)/(j-1) * ω[j-1]
+    end
+    s = zeros(n+1)
+    s[1] = ω[1]
+    for j=2:n+1 
+        s[j] = s[j-1] + ω[j]
+    end
+    return ω, s
+end
+
 function convection!(result, nu, ∇u)
     result[1] += ∇u[1]*u[1] + ∇u[2]*u[2]
     result[2] += ∇u[3]*u[1] + ∇u[4]*u[2]
@@ -173,4 +188,239 @@ function fokker_plank_space_notH2(ϵ, p=1, α=1.0)
     f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
 
     return γ, β, u, ∇(u), f
+end
+
+function fokker_plank_space_nonsmooth1(ϵ, p=1, α=1.0)
+    γ= DataFunction([0.0]; name = "γ")
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+    function exact!(result, x, t)
+        result[1] = (x[1] >=0 && x[1] <= 0.5) ? 1.0 : 0.0;
+    end
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+    function rhs!(result, x, t)
+        result[1] = 0.0;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    return γ, β, u, ∇(u), f
+end
+
+function fokker_plank_space_example3(ϵ, p=1, α=1.0)
+    γ= DataFunction([0.0]; name = "γ")    
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+    function exact!(result, x, t)
+        result[1] = (x[1]-x[1]^2)*(x[2]-x[2]^2);
+    end    
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+    function rhs!(result, x, t)
+        result[1] = 0.0;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    return γ, β, u, ∇(u), f
+end
+
+using MittagLeffler
+function fp_kassem_example1(ϵ=1.0, α=1.0, mm=2, nn=2)
+    γ= DataFunction([0.0]; name = "γ")    
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+
+    function exact!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            λm = (2*m-1)*π
+            for n=1:nn
+                λn = (2*n-1)*π
+                λmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                val += (λm*λn)^(-3) * sin(λm * x[1]) * sin(λn * x[2]) * mittleff(α, 1.0, -λmn*t^α)
+            end
+        end
+        result[1] = 64*val;
+    end
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+
+    function ut_exact!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            λm = (2*m-1)*π
+            for n=1:nn
+                λn = (2*n-1)*π
+                λmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                val += (λm*λn)^(-3) * sin(λm * x[1]) * sin(λn * x[2])# * mittleffderiv(α, α, -λmn*t^α)
+            end
+        end
+        result[1] = 64*val;
+    end
+    ut = DataFunction(ut_exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+
+    function fu!(result, x, t)
+        exact!(result, x, t)
+        result[2] = x[2]*result[1]
+        result[1] = x[1]*result[1]
+    end
+    fu_data = DataFunction(fu!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+    
+    function initial!(result, x, t)
+        result[1] = (x[1]-x[1]^2)*(x[2]-x[2]^2);
+    end
+    u0 = DataFunction(initial!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+        
+    function rhs!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            λm = (2*m-1)*π
+            for n=1:nn
+                λn = (2*n-1)*π
+                λmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                E_αα = mittleff(α, α, -λmn*t^α)
+                term1 = (λm*x[1]*cos(λm * x[1]) + 2*sin(λm * x[1])) *sin(λn*x[2])
+                term2 = λn*x[2]*sin(λm*x[1])*cos(λn*x[2])
+                val +=  (λm*λn)^(-3) *( term1 + term2) * E_αα
+            end
+        end
+        result[1] = 64*t^(α-1)*val;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    # function rhs_auto!(result, x, t)
+    #     diff_fu = div(fu_data)
+    #     laplace = Δ(u)
+    #     println(diff_fu)
+    #     result[1] = ut(x,t)[1] - laplace(x,t)[1] + diff_fu(x,t)[1]
+    #     return nothing
+    # end
+    # fn = DataFunction(rhs_auto!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+    println("Kassem Example Series 1")
+    return γ, β, u, ∇(u), f, u0
+end
+
+
+function fp_kassem_example2(ϵ=1.0, α=1.0, mm=2, nn=2)
+    γ= DataFunction([0.0]; name = "γ")    
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=1)
+
+    
+    function exact!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            λm = (2*m-1)*π
+            for n=1:nn
+                λn = (2*n-1)*π
+                λmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                val += (λm*λn)^(-3) * sin(λm * x[1]) * sin(λn * x[2]) * mittleff(α, 1.0, -λmn*t^α)
+            end
+        end
+        result[1] = 64*val;
+    end
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+
+    function ut_exact!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            λm = (2*m-1)*π
+            for n=1:nn
+                λn = (2*n-1)*π
+                λmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                val += (λm*λn)^(-3) * sin(λm * x[1]) * sin(λn * x[2]) * mittleffderiv(α, 1, -λmn*t^α)
+            end
+        end
+        result[1] = 64*val;
+    end
+    ut = DataFunction(ut_exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+
+    function space_der_exact!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            λm = (2*m-1)*π
+            for n=1:nn
+                λn = (2*n-1)*π
+                λmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                val += (λm*λn)^(-3) * (2*sin(λm * x[1]) * sin(λn * x[2]) + λm*x[1]*cos(λm*x[1])*sin(λn*x[2]) + λn *x[2]*sin(λm*x[1])*cos(λn*x[2])) * mittleff(α, 1.0, -λmn*t^α)
+            end
+        end
+        result[1] = 64*val;
+    end
+    dvi_uf = DataFunction(space_der_exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+    
+    function initial!(result, x, t)
+        result[1] = (x[1]-x[1]^2)*(x[2]-x[2]^2);
+    end
+    u0 = DataFunction(initial!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+        
+    function rhs!(result, x, t)
+        Δu = Δ(u)
+        result[1] = ut(x,t)[1] - Δu(x,t)[1] + dvi_uf(x,t)[1]
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+    println("Kassem Example Series 2")
+    return γ, β, u, ∇(u), f, u0
+end
+
+function fp_kassem_example_nsmooth(nn=30, mm=30, α=1.0)
+    γ= DataFunction([0.0]; name = "γ")
+    function coeffbeta!(result, x, t)
+        result[1] = x[1];
+        result[2] = x[2];
+    end    
+    β = DataFunction(coeffbeta!, [2,2]; name="β", dependencies="XT", bonus_quadorder=5)
+    function exact!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            lm = (2*m-1)*π
+            for n=1:mm
+                ln = (2*n-1)*π
+                lmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                pp = (m-1)*(n-1)
+                val += (-1)^pp*(lm*ln)^(-2) * sin(lm * x[1]) * sin(ln * x[2]) * mittleff(α, 1.0, -lmn*t^α)
+            end
+        end
+        result[1] = 16*val;
+    end
+    u = DataFunction(exact!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+
+    function rhs!(result, x, t)
+        val = zero(Float64)
+        for m=1:mm
+            lm = (2*m-1)*π
+            for n=1:nn
+                ln = (2*n-1)*π
+                lmn = ((2*m-1)^2 + (2*n-1)^2)*π^2
+                E_αα = mittleff(α, α, -lmn*t^α)
+                term1 = (lm*x[1]*cos(lm * x[1]) + 2*sin(lm * x[1])) *sin(ln*x[2])
+                term2 = ln*x[2]*sin(lm*x[1])*cos(ln*x[2])
+                pp = (m-1)*(n-1)
+                val +=  (-1)^pp*(lm*ln)^(-2) *( term1 + term2) * E_αα
+            end
+        end
+        result[1] = 16*t^(α-1)*val;
+      return nothing
+    end
+    f = DataFunction(rhs!, [1,2]; name = "f", dependencies = "XT", bonus_quadorder = 5)  
+
+    function initial!(result, x, t)
+        result[1] = (x[1] >0.5 && x[1] < 0.5) ? 1.0 : 0.0;
+    end
+    u0 = DataFunction(initial!, [1,2]; name="u", dependencies="XT", bonus_quadorder=5)
+    
+    return γ, β, u, ∇(u), f, u0
 end
